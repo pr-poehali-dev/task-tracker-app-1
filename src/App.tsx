@@ -1,28 +1,36 @@
+import { useAppStore } from '@/store/useAppStore';
+import AuthPage from '@/components/AuthPage';
+import Sidebar from '@/components/Sidebar';
+import BoardPage from '@/components/BoardPage';
+import TasksPage from '@/components/TasksPage';
+import TeamPage from '@/components/TeamPage';
+import ProfilePage from '@/components/ProfilePage';
+import NotificationsPage from '@/components/NotificationsPage';
 
-import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import Index from "./pages/Index";
-import NotFound from "./pages/NotFound";
+export default function App() {
+  const { currentUser, currentPage } = useAppStore();
 
-const queryClient = new QueryClient();
+  if (!currentUser) return <AuthPage />;
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Index />} />
-          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
-);
+  const renderPage = () => {
+    switch (currentPage) {
+      case 'board': return <BoardPage />;
+      case 'tasks': return <TasksPage />;
+      case 'team': return <TeamPage />;
+      case 'profile': return <ProfilePage />;
+      case 'notifications': return <NotificationsPage />;
+      default: return <BoardPage />;
+    }
+  };
 
-export default App;
+  return (
+    <div className="flex min-h-screen">
+      <Sidebar />
+      <main className="flex-1 overflow-y-auto min-h-screen" style={{ background: 'hsl(var(--background))' }}>
+        <div className="animate-fade-in">
+          {renderPage()}
+        </div>
+      </main>
+    </div>
+  );
+}
