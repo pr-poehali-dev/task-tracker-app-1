@@ -1,143 +1,200 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { User, Task, Notification, Page, TaskStatus } from '@/types';
+import { api } from '@/api/client';
 
 interface AppState {
   currentUser: User | null;
+  token: string | null;
   users: User[];
   tasks: Task[];
   notifications: Notification[];
   currentPage: Page;
+  loading: boolean;
 
-  login: (email: string, password: string) => boolean;
-  register: (name: string, email: string, password: string) => boolean;
-  logout: () => void;
+  init: () => Promise<void>;
+  login: (email: string, password: string) => Promise<string | null>;
+  register: (name: string, email: string, password: string) => Promise<string | null>;
+  logout: () => Promise<void>;
 
-  createTask: (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => void;
-  updateTask: (id: string, updates: Partial<Task>) => void;
-  deleteTask: (id: string) => void;
-  moveTask: (id: string, status: TaskStatus) => void;
+  fetchTasks: () => Promise<void>;
+  fetchUsers: () => Promise<void>;
+  fetchNotifications: () => Promise<void>;
 
-  addNotification: (userId: string, message: string, taskId?: string) => void;
-  markNotificationRead: (id: string) => void;
-  markAllNotificationsRead: () => void;
+  createTask: (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
+  updateTask: (id: string, updates: Partial<Task>) => Promise<void>;
+  deleteTask: (id: string) => Promise<void>;
+  moveTask: (id: string, status: TaskStatus) => Promise<void>;
+
+  markNotificationRead: (id: string) => Promise<void>;
+  markAllNotificationsRead: () => Promise<void>;
 
   setPage: (page: Page) => void;
 }
 
-const SEED_USERS: User[] = [
-  { id: 'u1', name: 'Алекс Космонавт', email: 'alex@task.ru', password: '123456', role: 'admin', createdAt: new Date().toISOString() },
-  { id: 'u2', name: 'Мария Звёздная', email: 'maria@task.ru', password: '123456', role: 'member', createdAt: new Date().toISOString() },
-  { id: 'u3', name: 'Иван Орбитов', email: 'ivan@task.ru', password: '123456', role: 'member', createdAt: new Date().toISOString() },
-];
+function mapTask(r: Record<string, unknown>): Task {
+  return {
+    id: r.id as string,
+    title: r.title as string,
+    description: (r.description as string) || '',
+    status: r.status as TaskStatus,
+    priority: r.priority as Task['priority'],
+    assigneeId: (r.assignee_id as string) || null,
+    createdById: r.created_by_id as string,
+    tags: (r.tags as string[]) || [],
+    createdAt: r.created_at as string,
+    updatedAt: r.updated_at as string,
+  };
+}
 
-const SEED_TASKS: Task[] = [
-  { id: 't1', title: 'Разработать лендинг', description: 'Создать главную страницу с анимациями и адаптивной вёрсткой', status: 'todo', priority: 'high', assigneeId: 'u2', createdById: 'u1', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), tags: ['дизайн', 'фронтенд'] },
-  { id: 't2', title: 'Настроить CI/CD пайплайн', description: 'Автоматизировать деплой через GitHub Actions', status: 'inprogress', priority: 'medium', assigneeId: 'u1', createdById: 'u1', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), tags: ['devops'] },
-  { id: 't3', title: 'Написать документацию API', description: 'Оформить все эндпоинты в Swagger', status: 'todo', priority: 'low', assigneeId: 'u3', createdById: 'u2', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), tags: ['документация'] },
-  { id: 't4', title: 'Провести код-ревью', description: 'Проверить Pull Request #42 по новому модулю авторизации', status: 'inprogress', priority: 'high', assigneeId: 'u2', createdById: 'u1', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), tags: ['ревью'] },
-  { id: 't5', title: 'Оптимизировать базу данных', description: 'Добавить индексы для ускорения запросов', status: 'done', priority: 'medium', assigneeId: 'u1', createdById: 'u3', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), tags: ['бэкенд', 'БД'] },
-  { id: 't6', title: 'Тестирование мобильной версии', description: 'Проверить все страницы на iOS и Android', status: 'done', priority: 'low', assigneeId: 'u3', createdById: 'u1', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), tags: ['QA', 'мобайл'] },
-];
+function mapUser(r: Record<string, unknown>): User {
+  return {
+    id: r.id as string,
+    name: r.name as string,
+    email: r.email as string,
+    password: '',
+    role: r.role as User['role'],
+    createdAt: r.created_at as string,
+  };
+}
+
+function mapNotification(r: Record<string, unknown>): Notification {
+  return {
+    id: r.id as string,
+    userId: r.user_id as string,
+    message: r.message as string,
+    taskId: (r.task_id as string) || undefined,
+    read: r.is_read as boolean,
+    createdAt: r.created_at as string,
+  };
+}
 
 export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
       currentUser: null,
-      users: SEED_USERS,
-      tasks: SEED_TASKS,
+      token: null,
+      users: [],
+      tasks: [],
       notifications: [],
       currentPage: 'board',
+      loading: false,
 
-      login: (email, password) => {
-        const user = get().users.find(u => u.email === email && u.password === password);
-        if (user) {
-          set({ currentUser: user });
-          return true;
-        }
-        return false;
-      },
-
-      register: (name, email, password) => {
-        if (get().users.find(u => u.email === email)) return false;
-        const newUser: User = {
-          id: `u${Date.now()}`,
-          name,
-          email,
-          password,
-          role: 'member',
-          createdAt: new Date().toISOString(),
-        };
-        set(s => ({ users: [...s.users, newUser], currentUser: newUser }));
-        return true;
-      },
-
-      logout: () => set({ currentUser: null, currentPage: 'board' }),
-
-      createTask: (taskData) => {
-        const task: Task = {
-          ...taskData,
-          id: `t${Date.now()}`,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-        set(s => ({ tasks: [...s.tasks, task] }));
-        if (task.assigneeId && task.assigneeId !== task.createdById) {
-          get().addNotification(task.assigneeId, `Тебе назначена задача: «${task.title}»`, task.id);
+      init: async () => {
+        const token = localStorage.getItem('tf_token');
+        if (!token) return;
+        const { status, data } = await api.me();
+        if (status === 200 && (data as Record<string, unknown>).user) {
+          const d = data as Record<string, unknown>;
+          set({ currentUser: mapUser(d.user as Record<string, unknown>), token });
+          await Promise.all([get().fetchTasks(), get().fetchUsers(), get().fetchNotifications()]);
+        } else {
+          localStorage.removeItem('tf_token');
         }
       },
 
-      updateTask: (id, updates) => {
-        set(s => ({
-          tasks: s.tasks.map(t =>
-            t.id === id ? { ...t, ...updates, updatedAt: new Date().toISOString() } : t
-          )
-        }));
-        const task = get().tasks.find(t => t.id === id);
-        if (task && updates.assigneeId && updates.assigneeId !== get().currentUser?.id) {
-          get().addNotification(updates.assigneeId, `Тебе переназначена задача: «${task.title}»`, id);
+      login: async (email, password) => {
+        const { status, data } = await api.login(email, password);
+        if (status === 200) {
+          const d = data as Record<string, unknown>;
+          localStorage.setItem('tf_token', d.token as string);
+          set({ currentUser: mapUser(d.user as Record<string, unknown>), token: d.token as string });
+          await Promise.all([get().fetchTasks(), get().fetchUsers(), get().fetchNotifications()]);
+          return null;
         }
-        if (task && updates.status && task.assigneeId && task.assigneeId !== get().currentUser?.id) {
-          const statusLabel = updates.status === 'done' ? 'выполнена' : updates.status === 'inprogress' ? 'в работе' : 'в очереди';
-          get().addNotification(task.assigneeId, `Статус задачи «${task.title}» изменён: ${statusLabel}`, id);
+        return (data as Record<string, unknown>).error as string || 'Ошибка входа';
+      },
+
+      register: async (name, email, password) => {
+        const { status, data } = await api.register(name, email, password);
+        if (status === 201) {
+          const d = data as Record<string, unknown>;
+          localStorage.setItem('tf_token', d.token as string);
+          set({ currentUser: mapUser(d.user as Record<string, unknown>), token: d.token as string });
+          await Promise.all([get().fetchTasks(), get().fetchUsers(), get().fetchNotifications()]);
+          return null;
+        }
+        return (data as Record<string, unknown>).error as string || 'Ошибка регистрации';
+      },
+
+      logout: async () => {
+        await api.logout();
+        localStorage.removeItem('tf_token');
+        set({ currentUser: null, token: null, tasks: [], users: [], notifications: [], currentPage: 'board' });
+      },
+
+      fetchTasks: async () => {
+        const { status, data } = await api.getTasks();
+        if (status === 200) set({ tasks: (data as unknown[]).map(r => mapTask(r as Record<string, unknown>)) });
+      },
+
+      fetchUsers: async () => {
+        const { status, data } = await api.getUsers();
+        if (status === 200) set({ users: (data as unknown[]).map(r => mapUser(r as Record<string, unknown>)) });
+      },
+
+      fetchNotifications: async () => {
+        const { status, data } = await api.getNotifications();
+        if (status === 200) set({ notifications: (data as unknown[]).map(r => mapNotification(r as Record<string, unknown>)) });
+      },
+
+      createTask: async (taskData) => {
+        const { status, data } = await api.createTask({
+          title: taskData.title,
+          description: taskData.description,
+          status: taskData.status,
+          priority: taskData.priority,
+          assignee_id: taskData.assigneeId || null,
+          tags: taskData.tags,
+        });
+        if (status === 201) {
+          const task = mapTask(data as Record<string, unknown>);
+          set(s => ({ tasks: [task, ...s.tasks] }));
+          await get().fetchNotifications();
         }
       },
 
-      deleteTask: (id) => {
-        set(s => ({ tasks: s.tasks.filter(t => t.id !== id) }));
+      updateTask: async (id, updates) => {
+        const body: Record<string, unknown> = {};
+        if (updates.title !== undefined) body.title = updates.title;
+        if (updates.description !== undefined) body.description = updates.description;
+        if (updates.status !== undefined) body.status = updates.status;
+        if (updates.priority !== undefined) body.priority = updates.priority;
+        if (updates.assigneeId !== undefined) body.assignee_id = updates.assigneeId || null;
+        if (updates.tags !== undefined) body.tags = updates.tags;
+
+        const { status, data } = await api.updateTask(id, body);
+        if (status === 200) {
+          const task = mapTask(data as Record<string, unknown>);
+          set(s => ({ tasks: s.tasks.map(t => t.id === id ? task : t) }));
+          await get().fetchNotifications();
+        }
       },
 
-      moveTask: (id, status) => {
-        get().updateTask(id, { status });
+      deleteTask: async (id) => {
+        const { status } = await api.deleteTask(id);
+        if (status === 200) {
+          set(s => ({ tasks: s.tasks.filter(t => t.id !== id) }));
+        }
       },
 
-      addNotification: (userId, message, taskId) => {
-        const n: Notification = {
-          id: `n${Date.now()}`,
-          userId,
-          message,
-          taskId,
-          read: false,
-          createdAt: new Date().toISOString(),
-        };
-        set(s => ({ notifications: [n, ...s.notifications] }));
+      moveTask: async (id, status) => {
+        await get().updateTask(id, { status });
       },
 
-      markNotificationRead: (id) => {
-        set(s => ({
-          notifications: s.notifications.map(n => n.id === id ? { ...n, read: true } : n)
-        }));
+      markNotificationRead: async (id) => {
+        await api.markRead(id);
+        set(s => ({ notifications: s.notifications.map(n => n.id === id ? { ...n, read: true } : n) }));
       },
 
-      markAllNotificationsRead: () => {
+      markAllNotificationsRead: async () => {
+        await api.markAllRead();
         const uid = get().currentUser?.id;
-        set(s => ({
-          notifications: s.notifications.map(n => n.userId === uid ? { ...n, read: true } : n)
-        }));
+        set(s => ({ notifications: s.notifications.map(n => n.userId === uid ? { ...n, read: true } : n) }));
       },
 
       setPage: (page) => set({ currentPage: page }),
     }),
-    { name: 'taskflow-store' }
+    { name: 'taskflow-store', partialize: (s) => ({ currentPage: s.currentPage }) }
   )
 );

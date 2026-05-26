@@ -8,18 +8,24 @@ export default function AuthPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const { login, register } = useAppStore();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    if (mode === 'login') {
-      const ok = login(email, password);
-      if (!ok) setError('Неверный email или пароль');
-    } else {
-      if (!name.trim()) { setError('Введи имя'); return; }
-      const ok = register(name, email, password);
-      if (!ok) setError('Этот email уже зарегистрирован');
+    setSubmitting(true);
+    try {
+      if (mode === 'login') {
+        const err = await login(email, password);
+        if (err) setError(err);
+      } else {
+        if (!name.trim()) { setError('Введи имя'); return; }
+        const err = await register(name, email, password);
+        if (err) setError(err);
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -112,16 +118,16 @@ export default function AuthPage() {
 
             <button
               type="submit"
-              className="w-full py-3.5 rounded-xl font-semibold text-black transition-all hover:opacity-90 hover:scale-[1.02] active:scale-[0.98]"
+              disabled={submitting}
+              className="w-full py-3.5 rounded-xl font-semibold text-black transition-all hover:opacity-90 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
               style={{ background: 'var(--neon-green)', boxShadow: '0 0 20px rgba(0,255,135,0.3)', marginTop: '8px' }}
             >
-              {mode === 'login' ? 'Войти в систему' : 'Создать аккаунт'}
+              {submitting ? 'Загрузка...' : mode === 'login' ? 'Войти в систему' : 'Создать аккаунт'}
             </button>
           </form>
 
           <div className="mt-6 p-4 rounded-xl" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
-            <p className="text-xs text-muted-foreground mb-2">Демо-аккаунт для тестирования:</p>
-            <p className="text-xs font-mono" style={{ color: 'var(--neon-green)' }}>alex@task.ru / 123456</p>
+            <p className="text-xs text-muted-foreground mb-1">Нет аккаунта? Нажми «Регистрация» и создай свой.</p>
           </div>
         </div>
       </div>

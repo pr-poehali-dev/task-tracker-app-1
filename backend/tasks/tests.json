@@ -1,0 +1,10 @@
+{
+  "tests": [
+    {
+      "name": "Get tasks without auth",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 401
+    }
+  ]
+}

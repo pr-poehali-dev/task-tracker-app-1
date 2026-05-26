@@ -1,0 +1,18 @@
+{
+  "tests": [
+    {
+      "name": "Register new user",
+      "method": "POST",
+      "path": "/",
+      "body": {"action": "register", "name": "Test User", "email": "testunique999x@test.ru", "password": "pass123"},
+      "expectedStatus": 201
+    },
+    {
+      "name": "Login with wrong password",
+      "method": "POST",
+      "path": "/",
+      "body": {"action": "login", "email": "nobody@test.ru", "password": "wrong"},
+      "expectedStatus": 401
+    }
+  ]
+}
